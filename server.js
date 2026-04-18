@@ -6,7 +6,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Подключение к вашей MySQL базе
 const db = mysql.createConnection({
   host: 'd6.aurorix.net',
   port: 3306,
@@ -16,58 +15,53 @@ const db = mysql.createConnection({
 });
 
 db.connect((err) => {
-  if (err) {
-    console.error('MySQL connection error:', err);
-  } else {
-    console.log('✅ Connected to MySQL');
-  }
+  if (err) console.error('MySQL error:', err);
+  else console.log('✅ MySQL connected');
 });
 
-// Создание таблиц
-const createTables = `
-CREATE TABLE IF NOT EXISTS users (
-  id VARCHAR(50) PRIMARY KEY,
-  phone VARCHAR(20) UNIQUE NOT NULL,
-  name VARCHAR(100) NOT NULL,
-  password VARCHAR(100) NOT NULL,
-  avatar VARCHAR(10),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+// Создание таблиц по отдельности
+const tables = [
+  `CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(50) PRIMARY KEY,
+    phone VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    password VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`,
+  
+  `CREATE TABLE IF NOT EXISTS groups (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    created_by VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`,
+  
+  `CREATE TABLE IF NOT EXISTS group_members (
+    group_id VARCHAR(50),
+    user_id VARCHAR(50),
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (group_id, user_id)
+  )`,
+  
+  `CREATE TABLE IF NOT EXISTS messages (
+    id VARCHAR(50) PRIMARY KEY,
+    group_id VARCHAR(50),
+    user_id VARCHAR(50),
+    user_name VARCHAR(100),
+    text TEXT,
+    time VARCHAR(20),
+    timestamp BIGINT
+  )`
+];
 
-CREATE TABLE IF NOT EXISTS groups (
-  id VARCHAR(50) PRIMARY KEY,
-  name VARCHAR(100) NOT NULL,
-  created_by VARCHAR(50),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS group_members (
-  group_id VARCHAR(50),
-  user_id VARCHAR(50),
-  joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (group_id, user_id)
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-  id VARCHAR(50) PRIMARY KEY,
-  group_id VARCHAR(50),
-  user_id VARCHAR(50),
-  user_name VARCHAR(100),
-  text TEXT,
-  time VARCHAR(20),
-  timestamp BIGINT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-`;
-
-db.query(createTables, (err) => {
-  if (err) console.error('Table creation error:', err);
-  else console.log('✅ Tables ready');
+tables.forEach(query => {
+  db.query(query, (err) => {
+    if (err) console.error('Table error:', err.message);
+    else console.log('✅ Table ready');
+  });
 });
 
-// API endpoints
-
-// Регистрация
+// API Routes
 app.post('/api/register', (req, res) => {
   const { id, phone, name, password } = req.body;
   db.query('INSERT INTO users (id, phone, name, password) VALUES (?, ?, ?, ?)',
@@ -77,48 +71,34 @@ app.post('/api/register', (req, res) => {
   });
 });
 
-// Логин
 app.post('/api/login', (req, res) => {
   const { phone, password } = req.body;
   db.query('SELECT * FROM users WHERE phone = ? AND password = ?',
     [phone, password], (err, results) => {
-    if (err || results.length === 0) {
-      res.json({ success: false });
-    } else {
-      res.json({ success: true, user: results[0] });
-    }
+    if (err || results.length === 0) res.json({ success: false });
+    else res.json({ success: true, user: results[0] });
   });
 });
 
-// Получить всех пользователей
 app.get('/api/users', (req, res) => {
   db.query('SELECT id, phone, name FROM users', (err, results) => {
     res.json(results || []);
   });
 });
 
-// Создать группу
 app.post('/api/groups', (req, res) => {
   const { id, name, created_by, members } = req.body;
-  
   db.query('INSERT INTO groups (id, name, created_by) VALUES (?, ?, ?)',
     [id, name, created_by], (err) => {
-    if (err) {
-      res.json({ success: false, error: err.message });
-      return;
+    if (err) { res.json({ success: false, error: err.message }); return; }
+    const values = members.map(m => [id, m.id]);
+    if (values.length) {
+      db.query('INSERT INTO group_members (group_id, user_id) VALUES ?', [values]);
     }
-    
-    // Добавляем всех участников
-    const membersValues = members.map(m => [id, m.id]);
-    if (membersValues.length > 0) {
-      db.query('INSERT INTO group_members (group_id, user_id) VALUES ?', [membersValues]);
-    }
-    
     res.json({ success: true });
   });
 });
 
-// Получить группы пользователя
 app.get('/api/groups/:userId', (req, res) => {
   db.query(`
     SELECT g.* FROM groups g
@@ -129,44 +109,23 @@ app.get('/api/groups/:userId', (req, res) => {
   });
 });
 
-// Получить сообщения чата
 app.get('/api/messages/:groupId', (req, res) => {
-  db.query(`
-    SELECT * FROM messages 
-    WHERE group_id = ? 
-    ORDER BY timestamp ASC
-  `, [req.params.groupId], (err, results) => {
+  db.query('SELECT * FROM messages WHERE group_id = ? ORDER BY timestamp ASC',
+    [req.params.groupId], (err, results) => {
     res.json(results || []);
   });
 });
 
-// Отправить сообщение
 app.post('/api/messages', (req, res) => {
   const { id, group_id, user_id, user_name, text, time, timestamp } = req.body;
-  db.query(`
-    INSERT INTO messages (id, group_id, user_id, user_name, text, time, timestamp)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `, [id, group_id, user_id, user_name, text, time, timestamp], (err) => {
-    if (err) {
-      res.json({ success: false, error: err.message });
-    } else {
-      res.json({ success: true });
-    }
+  db.query(`INSERT INTO messages (id, group_id, user_id, user_name, text, time, timestamp) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, group_id, user_id, user_name, text, time, timestamp], (err) => {
+    res.json({ success: !err, error: err?.message });
   });
 });
 
-// Добавить участника в группу
-app.post('/api/groups/:groupId/members', (req, res) => {
-  const { groupId } = req.params;
-  const { user_id } = req.body;
-  
-  db.query('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)',
-    [groupId, user_id], (err) => {
-    res.json({ success: !err });
-  });
-});
-
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 API running on port ${PORT}`);
   console.log(`📍 MySQL: d6.aurorix.net:3306`);
