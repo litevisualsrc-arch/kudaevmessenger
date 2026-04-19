@@ -19,7 +19,6 @@ db.connect((err) => {
   else console.log('✅ MySQL connected');
 });
 
-// Создание ВСЕХ таблиц
 db.query(`CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(50) PRIMARY KEY,
   phone VARCHAR(20) UNIQUE,
@@ -48,7 +47,6 @@ db.query(`CREATE TABLE IF NOT EXISTS messages (
   timestamp BIGINT
 )`);
 
-// Регистрация
 app.post('/api/register', (req, res) => {
   const { id, phone, name, password } = req.body;
   db.query('INSERT INTO users (id, phone, name, password) VALUES (?, ?, ?, ?)',
@@ -57,7 +55,6 @@ app.post('/api/register', (req, res) => {
   });
 });
 
-// Логин
 app.post('/api/login', (req, res) => {
   const { phone, password } = req.body;
   db.query('SELECT * FROM users WHERE phone = ? AND password = ?',
@@ -67,14 +64,12 @@ app.post('/api/login', (req, res) => {
   });
 });
 
-// Получить всех пользователей
 app.get('/api/users', (req, res) => {
   db.query('SELECT id, phone, name FROM users', (err, results) => {
     res.json(results || []);
   });
 });
 
-// Получить группы пользователя
 app.get('/api/groups/:userId', (req, res) => {
   db.query(`
     SELECT g.* FROM groups g
@@ -85,7 +80,6 @@ app.get('/api/groups/:userId', (req, res) => {
   });
 });
 
-// Создать группу
 app.post('/api/groups', (req, res) => {
   const { id, name, created_by, members } = req.body;
   db.query('INSERT INTO groups (id, name, created_by) VALUES (?, ?, ?)',
@@ -98,7 +92,14 @@ app.post('/api/groups', (req, res) => {
   });
 });
 
-// Получить сообщения
+app.delete('/api/groups/:groupId', (req, res) => {
+  db.query('DELETE FROM messages WHERE group_id = ?', [req.params.groupId]);
+  db.query('DELETE FROM group_members WHERE group_id = ?', [req.params.groupId]);
+  db.query('DELETE FROM groups WHERE id = ?', [req.params.groupId], (err) => {
+    res.json({ success: !err });
+  });
+});
+
 app.get('/api/messages/:groupId', (req, res) => {
   db.query('SELECT * FROM messages WHERE group_id = ? ORDER BY timestamp ASC',
     [req.params.groupId], (err, results) => {
@@ -106,11 +107,16 @@ app.get('/api/messages/:groupId', (req, res) => {
   });
 });
 
-// Отправить сообщение
 app.post('/api/messages', (req, res) => {
   const { id, group_id, user_id, user_name, text, time, timestamp } = req.body;
   db.query('INSERT INTO messages (id, group_id, user_id, user_name, text, time, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [id, group_id, user_id, user_name, text, time, timestamp], (err) => {
+    res.json({ success: !err });
+  });
+});
+
+app.delete('/api/messages/:messageId', (req, res) => {
+  db.query('DELETE FROM messages WHERE id = ?', [req.params.messageId], (err) => {
     res.json({ success: !err });
   });
 });
